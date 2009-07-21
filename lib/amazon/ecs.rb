@@ -21,6 +21,7 @@
 # SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #++
 
+
 require 'net/http'
 require 'hpricot'
 require 'cgi'
@@ -190,30 +191,20 @@ module Amazon
       
     private 
     def self.prepare_url(opts)
-      country = opts.delete(:country)
-      country = (country.nil?) ? 'us' : country
+      country = opts.delete(:country) || 'us'
       request_url = SERVICE_URLS[country.to_sym]
       raise Amazon::RequestError, "Invalid country '#{country}'" unless request_url
+      
+      access_key_id = opts.delete(:aWS_access_key_id)
       secret_access_key = opts.delete(:secret_access_key)
       raise Amazon::RequestError, "secret_access_key is nil" unless secret_access_key
-      opts[:Timestamp] = DateTime.now.new_offset.strftime('%Y-%m-%dT%XZ')
-      opts[:Service] = "AWSECommerceService"
-      opts[:Version] = "2009-01-06"
-      qs = opts.map do |k, v|
-        [camelize(k.to_s), v]
-      end
-      qs.reject! do |k,v| v.to_s.empty? end
-      qs.sort!
-      qs.map! do |k,v|
-        v = v.join(',') if v.is_a? Array
-        [k, CGI.escape(v.to_s)] * "="
-      end
-      qs = qs * "&"
-      uri = URI.parse(request_url + "?" + qs)
-      msg = [ 'GET', uri.host, uri.path, uri.query ].join("\n")
-      dig = hmac_sha256(secret_access_key, msg)
-      sig = CGI.escape(Base64.encode64(dig).chomp)
-      "#{request_url}?#{qs}&Signature=#{sig}"
+      
+      opts = Hash[*opts.map { |k, v| [camelize(k.to_s), v.to_s] }.flatten]
+      
+      aws_signer = AwsProductSign.new(:access_key => access_key_id, :secret_key => secret_access_key)
+      qs = aws_signer.query_with_signature(opts)
+
+      "#{request_url}?#{qs}"
     end
 
     IPAD = "\x36"
